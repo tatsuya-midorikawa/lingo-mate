@@ -11,6 +11,8 @@
     ? window.LINGO_MATE_WORDS
     : [];
 
+  var NO_WORDS_MESSAGE = "単語がありません";
+
   /* ----------------------------- helpers ------------------------------ */
 
   // Fisher-Yates shuffle on a copy of the given array.
@@ -64,7 +66,7 @@
 
   function renderCard() {
     if (cardOrder.length === 0) {
-      frontText.textContent = "単語がありません";
+      frontText.textContent = NO_WORDS_MESSAGE;
       backText.textContent = "-";
       exampleText.textContent = "";
       counter.textContent = "0 / 0";
@@ -214,7 +216,7 @@
       quizActive.hidden = false;
       quizResult.hidden = true;
       quizProgress.textContent = "";
-      quizQuestion.textContent = "単語がありません";
+      quizQuestion.textContent = NO_WORDS_MESSAGE;
       quizOptions.innerHTML = "";
       quizFeedback.textContent = "";
       quizNext.hidden = true;

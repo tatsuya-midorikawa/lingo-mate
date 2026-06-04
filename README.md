@@ -23,7 +23,7 @@
 
 ```js
 window.LINGO_MATE_WORDS = [
-  { word: "apple", meaning: "りんご", example: "I eat an apple every morning." }
+  { word: "apple", meaning: "りんご", example: "I eat an apple every morning." },
   // ここに追加
 ];
 ```
