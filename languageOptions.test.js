@@ -19,3 +19,10 @@ test("falls back to English then remaining languages when navigator list is unav
   assert.equal(codes[0], "en");
   assert.equal(new Set(codes).size, codes.length);
 });
+
+test("keeps English first even when navigator languages do not include English", () => {
+  const actual = getOrderedTargetLanguages(["ko-KR", "ja-JP"]);
+  const codes = actual.map((item) => item.code);
+
+  assert.deepEqual(codes.slice(0, 3), ["en", "ko", "ja"]);
+});
