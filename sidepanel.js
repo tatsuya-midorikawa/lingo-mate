@@ -62,6 +62,11 @@
         ? `検出言語: ${detectedLanguage}`
         : "検出言語: 不明";
 
+      if (!detectedLanguage) {
+        translatedTextElement.textContent = "入力言語を判定できませんでした";
+        return;
+      }
+
       const translatedText = await translateText(detectedLanguage, targetLanguage, sourceText);
       translatedTextElement.textContent = translatedText;
     } catch (error) {
