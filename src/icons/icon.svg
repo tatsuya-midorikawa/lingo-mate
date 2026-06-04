@@ -1,0 +1,22 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lingomate">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0fbf7a"/>
+      <stop offset="0.55" stop-color="#0aa2c4"/>
+      <stop offset="1" stop-color="#4733e6"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="32" fill="url(#bg)"/>
+  <circle cx="30" cy="28" r="8" fill="#ffffff" opacity="0.35"/>
+  <circle cx="104" cy="100" r="12" fill="#ffffff" opacity="0.18"/>
+  <path d="M32 28h64a16 16 0 0 1 16 16v30a16 16 0 0 1-16 16H68L44 106V90H32A16 16 0 0 1 16 74V44a16 16 0 0 1 16-16z" fill="url(#bubble)"/>
+  <text x="50" y="74" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-weight="700" fill="#0a83c4" text-anchor="middle">A</text>
+  <text x="83" y="74" font-family="'Hiragino Sans', 'Noto Sans CJK JP', sans-serif" font-size="38" font-weight="700" fill="#5a32e0" text-anchor="middle">文</text>
+  <circle cx="42" cy="118" r="3.4" fill="#ffc61a"/>
+  <circle cx="64" cy="120" r="4" fill="#ff5fae"/>
+  <circle cx="86" cy="118" r="3.4" fill="#ffffff"/>
+</svg>

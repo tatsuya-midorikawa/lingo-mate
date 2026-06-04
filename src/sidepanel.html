@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lingomate</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="app" aria-labelledby="appTitle">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Simple Translator</p>
+          <h1 id="appTitle">Lingomate</h1>
+        </div>
+        <p id="apiStatus" class="api-status" role="status">API を確認中...</p>
+      </header>
+
+      <section class="language-bar" aria-label="翻訳設定">
+        <div class="language-pill detected-pill">
+          <span class="control-label">入力言語</span>
+          <strong id="detectedLanguage">未検出</strong>
+          <span id="confidenceValue" class="confidence"></span>
+        </div>
+
+        <span class="language-arrow" aria-hidden="true">→</span>
+
+        <label class="language-pill target-pill" for="targetLanguage">
+          <span class="control-label">翻訳先</span>
+          <select id="targetLanguage" disabled>
+            <option value="">入力後に選択</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="tool-panel input-panel" aria-labelledby="inputLabel">
+        <label id="inputLabel" class="visually-hidden" for="sourceText">入力</label>
+        <textarea id="sourceText" class="text-field" dir="auto" spellcheck="true" placeholder="翻訳したいテキスト"></textarea>
+        <div class="field-toolbar">
+          <button id="clearButton" class="icon-button" type="button" title="入力を消去" aria-label="入力を消去">
+            <span aria-hidden="true">×</span>
+          </button>
+          <div class="field-meta">
+            <span id="detectionHint">未検出</span>
+            <span id="characterCount">0 字</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="tool-panel output-panel" aria-labelledby="resultLabel">
+        <h2 id="resultLabel" class="visually-hidden">翻訳結果</h2>
+        <textarea id="resultText" class="text-field result-field" dir="auto" readonly placeholder=""></textarea>
+        <div class="field-toolbar">
+          <button id="copyButton" class="icon-button" type="button" title="結果をコピー" aria-label="結果をコピー" disabled>
+            <span aria-hidden="true">⧉</span>
+          </button>
+        </div>
+      </section>
+
+      <div class="action-bar">
+        <button id="translateButton" class="primary-button" type="button" disabled>翻訳</button>
+      </div>
+
+      <footer class="status-footer">
+        <p id="statusMessage" role="status">入力すると言語を自動判定します。</p>
+        <div id="progressSection" class="footer-progress" aria-live="polite" hidden>
+          <div class="progress-label">
+            <span id="progressLabel">モデルを準備中...</span>
+            <span id="progressValue">0%</span>
+          </div>
+          <progress id="downloadProgress" max="100" value="0"></progress>
+        </div>
+      </footer>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
