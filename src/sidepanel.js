@@ -1,6 +1,7 @@
 const MIN_DETECTION_CHARS = 8;
 const LINE_BREAK_PATTERN = /(\r\n|\n|\r)/;
 const LINE_BREAK_ONLY_PATTERN = /^(?:\r\n|\n|\r)$/;
+const EMOJI_PATTERN = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
 const SUPPORTED_AVAILABILITY = new Set(["available", "downloadable", "downloading"]);
 
 const SUPPORTED_LANGUAGES = [
@@ -405,10 +406,64 @@ async function translatePreservingLineBreaks(translator, text) {
       continue;
     }
 
-    translatedParts.push(await translator.translate(part));
+    translatedParts.push(await translatePreservingEmoji(translator, part));
   }
 
   return translatedParts.join("");
+}
+
+async function translatePreservingEmoji(translator, text) {
+  if (!EMOJI_PATTERN.test(text)) {
+    return translator.translate(text);
+  }
+
+  const translatedSegments = [];
+
+  for (const segment of splitEmojiSegments(text)) {
+    if (segment.isEmoji || segment.text.trim().length === 0) {
+      translatedSegments.push(segment.text);
+      continue;
+    }
+
+    translatedSegments.push(await translator.translate(segment.text));
+  }
+
+  return translatedSegments.join("");
+}
+
+function splitEmojiSegments(text) {
+  const graphemes = toGraphemes(text);
+  const segments = [];
+  let buffer = "";
+
+  for (const grapheme of graphemes) {
+    if (EMOJI_PATTERN.test(grapheme)) {
+      if (buffer) {
+        segments.push({ text: buffer, isEmoji: false });
+        buffer = "";
+      }
+
+      segments.push({ text: grapheme, isEmoji: true });
+      continue;
+    }
+
+    buffer += grapheme;
+  }
+
+  if (buffer) {
+    segments.push({ text: buffer, isEmoji: false });
+  }
+
+  return segments;
+}
+
+function toGraphemes(text) {
+  if ("Segmenter" in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return [...segmenter.segment(text)].map((entry) => entry.segment);
+  }
+
+  return [...text];
 }
 
 async function getDetector() {
