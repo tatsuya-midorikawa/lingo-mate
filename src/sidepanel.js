@@ -59,13 +59,13 @@ const elements = {
   clearButton: document.querySelector("#clearButton"),
   confidenceValue: document.querySelector("#confidenceValue"),
   copyButton: document.querySelector("#copyButton"),
-  detectedLanguage: document.querySelector("#detectedLanguage"),
   detectionHint: document.querySelector("#detectionHint"),
   downloadProgress: document.querySelector("#downloadProgress"),
   progressLabel: document.querySelector("#progressLabel"),
   progressSection: document.querySelector("#progressSection"),
   progressValue: document.querySelector("#progressValue"),
   resultText: document.querySelector("#resultText"),
+  sourceLanguage: document.querySelector("#sourceLanguage"),
   sourceText: document.querySelector("#sourceText"),
   statusFooter: document.querySelector(".status-footer"),
   statusMessage: document.querySelector("#statusMessage"),
@@ -74,7 +74,7 @@ const elements = {
 };
 
 const displayNames = createDisplayNames();
-const orderedTargetCodes = createOrderedTargetCodes();
+const orderedLanguageCodes = createOrderedLanguageCodes();
 const targetAvailabilityCache = new Map();
 const translatorCache = new Map();
 
@@ -91,11 +91,13 @@ initialize();
 
 function initialize() {
   elements.sourceText.addEventListener("input", handleInput);
+  elements.sourceLanguage.addEventListener("change", handleSourceLanguageChange);
   elements.targetLanguage.addEventListener("change", updateTranslateButton);
   elements.translateButton.addEventListener("click", handleTranslate);
   elements.clearButton.addEventListener("click", clearInput);
   elements.copyButton.addEventListener("click", copyResult);
 
+  renderSourceLanguageOptions();
   renderTargetOptions([], "");
   updateCharacterCount();
   updateTranslateButton();
@@ -103,25 +105,29 @@ function initialize() {
 }
 
 async function checkApiAvailability() {
-  const missingApis = [];
+  const hasDetector = "LanguageDetector" in self;
+  const hasTranslator = "Translator" in self;
 
-  if (!("LanguageDetector" in self)) {
-    missingApis.push("Language Detector API");
-  }
-
-  if (!("Translator" in self)) {
-    missingApis.push("Translator API");
-  }
-
-  if (missingApis.length > 0) {
+  if (!hasTranslator) {
+    const missingApis = hasDetector ? ["Translator API"] : ["Language Detector API", "Translator API"];
     elements.apiStatus.textContent = "Built-in AI API は未対応です";
     setStatus(`${missingApis.join(" / ")} がこのブラウザで利用できません。`, "error");
+    return;
+  }
+
+  if (!hasDetector) {
+    elements.apiStatus.textContent = "Detector: 未対応（手動選択可）";
+    setStatus("入力言語を手動で選択すると翻訳できます。");
     return;
   }
 
   try {
     const detectorAvailability = await LanguageDetector.availability();
     elements.apiStatus.textContent = `Detector: ${formatAvailability(detectorAvailability)}`;
+
+    if (detectorAvailability === "unavailable") {
+      setStatus("自動判定は利用できません。入力言語を手動で選択してください。");
+    }
   } catch (error) {
     elements.apiStatus.textContent = "API 確認に失敗しました";
     setStatus(`API の状態を確認できませんでした: ${getErrorMessage(error)}`, "error");
@@ -130,7 +136,6 @@ async function checkApiAvailability() {
 
 function handleInput() {
   detectionRun += 1;
-  targetRun += 1;
   translationRun += 1;
   isTranslating = false;
   elements.translateButton.textContent = "翻訳";
@@ -138,17 +143,57 @@ function handleInput() {
   updateCharacterCount();
   elements.resultText.value = "";
   elements.copyButton.disabled = true;
+  window.clearTimeout(detectTimer);
+
+  if (!isAutoSourceLanguage()) {
+    currentSourceLanguage = elements.sourceLanguage.value;
+    renderSourceLanguageStatus({ code: currentSourceLanguage, manual: true });
+    if (currentTargets.length > 0) {
+      setStatus("翻訳できます。", "success");
+    }
+    updateTranslateButton();
+    return;
+  }
+
+  targetRun += 1;
   currentSourceLanguage = "";
   currentTargets = [];
-  renderDetectedLanguage(null);
+  renderSourceLanguageStatus(null);
   renderTargetOptions([], "");
   updateTranslateButton();
   prepareDetector();
 
-  window.clearTimeout(detectTimer);
   detectTimer = window.setTimeout(() => {
     detectInputLanguage({ force: false });
   }, 450);
+}
+
+async function handleSourceLanguageChange() {
+  detectionRun += 1;
+  translationRun += 1;
+  isTranslating = false;
+  elements.translateButton.textContent = "翻訳";
+  hideProgress();
+  elements.resultText.value = "";
+  elements.copyButton.disabled = true;
+  window.clearTimeout(detectTimer);
+
+  const sourceLanguage = elements.sourceLanguage.value;
+
+  if (!sourceLanguage) {
+    targetRun += 1;
+    currentSourceLanguage = "";
+    currentTargets = [];
+    renderSourceLanguageStatus(null);
+    renderTargetOptions([], "");
+    updateTranslateButton();
+    await detectInputLanguage({ force: true });
+    return;
+  }
+
+  currentSourceLanguage = sourceLanguage;
+  renderSourceLanguageStatus({ code: sourceLanguage, manual: true });
+  await refreshTargetLanguages(sourceLanguage);
 }
 
 function prepareDetector() {
@@ -167,12 +212,16 @@ function updateCharacterCount() {
 }
 
 async function detectInputLanguage({ force }) {
+  if (!isAutoSourceLanguage()) {
+    return currentSourceLanguage || null;
+  }
+
   const rawText = elements.sourceText.value;
   const text = rawText.trim();
   const runId = ++detectionRun;
 
   if (!text) {
-    renderDetectedLanguage(null);
+    renderSourceLanguageStatus(null);
     setStatus("入力すると言語を自動判定します。");
     return null;
   }
@@ -183,8 +232,13 @@ async function detectInputLanguage({ force }) {
     return null;
   }
 
-  if (!("LanguageDetector" in self) || !("Translator" in self)) {
-    setStatus("このブラウザでは必要な Built-in AI API が利用できません。", "error");
+  if (!("LanguageDetector" in self)) {
+    setStatus("このブラウザでは Language Detector API が利用できません。入力言語を手動で選択してください。", "error");
+    return null;
+  }
+
+  if (!("Translator" in self)) {
+    setStatus("このブラウザでは Translator API が利用できません。", "error");
     return null;
   }
 
@@ -204,14 +258,14 @@ async function detectInputLanguage({ force }) {
 
     if (!bestResult || !sourceLanguage) {
       currentSourceLanguage = "";
-      renderDetectedLanguage(null);
+      renderSourceLanguageStatus(null);
       renderTargetOptions([], "");
       setStatus("対応している入力言語を判定できませんでした。", "error");
       return null;
     }
 
     currentSourceLanguage = sourceLanguage;
-    renderDetectedLanguage({
+    renderSourceLanguageStatus({
       code: sourceLanguage,
       confidence: bestResult.confidence ?? 0
     });
@@ -225,7 +279,7 @@ async function detectInputLanguage({ force }) {
 
     detectorPromise = null;
     currentSourceLanguage = "";
-    renderDetectedLanguage(null);
+    renderSourceLanguageStatus(null);
     renderTargetOptions([], "");
     setStatus(`言語判定に失敗しました: ${getErrorMessage(error)}`, "error");
     return null;
@@ -238,9 +292,19 @@ async function refreshTargetLanguages(sourceLanguage) {
   const runId = ++targetRun;
   const previousTarget = elements.targetLanguage.value;
 
+  if (!("Translator" in self)) {
+    currentTargets = [];
+    renderTargetOptions([], "");
+    setStatus("このブラウザでは Translator API が利用できません。", "error");
+    updateTranslateButton();
+    return;
+  }
+
+  currentTargets = [];
   elements.targetLanguage.disabled = true;
   elements.targetLanguage.replaceChildren(new Option("対応言語を確認中", ""));
   setStatus("翻訳先の対応状況を確認しています。");
+  updateTranslateButton();
 
   try {
     const targets = await getAvailableTargets(sourceLanguage);
@@ -257,7 +321,7 @@ async function refreshTargetLanguages(sourceLanguage) {
       return;
     }
 
-    setStatus("翻訳できます。", "success");
+    setStatus(elements.sourceText.value.trim() ? "翻訳できます。" : "テキストを入力すると翻訳できます。", "success");
   } catch (error) {
     if (runId !== targetRun) {
       return;
@@ -276,7 +340,7 @@ async function getAvailableTargets(sourceLanguage) {
     return targetAvailabilityCache.get(sourceLanguage);
   }
 
-  const candidates = orderedTargetCodes.filter((targetLanguage) => {
+  const candidates = orderedLanguageCodes.filter((targetLanguage) => {
     return !isSameLanguage(sourceLanguage, targetLanguage);
   });
 
@@ -303,19 +367,31 @@ async function getAvailableTargets(sourceLanguage) {
   return targets;
 }
 
-function renderDetectedLanguage(result) {
+function renderSourceLanguageOptions() {
+  elements.sourceLanguage.replaceChildren(new Option("自動検出", ""));
+
+  for (const code of orderedLanguageCodes) {
+    elements.sourceLanguage.append(new Option(`${getLanguageName(code)} (${code})`, code));
+  }
+}
+
+function renderSourceLanguageStatus(result) {
   if (!result) {
-    elements.detectedLanguage.textContent = "未検出";
     elements.confidenceValue.textContent = "";
-    elements.detectionHint.textContent = "未検出";
+    elements.detectionHint.textContent = isAutoSourceLanguage() ? "未検出" : "手動";
+    return;
+  }
+
+  if (result.manual) {
+    elements.confidenceValue.textContent = "手動選択";
+    elements.detectionHint.textContent = `${getLanguageName(result.code)} / 手動`;
     return;
   }
 
   const confidence = Math.max(0, Math.min(1, result.confidence));
   const percent = Math.round(confidence * 100);
 
-  elements.detectedLanguage.textContent = `${getLanguageName(result.code)} (${result.code})`;
-  elements.confidenceValue.textContent = `信頼度 ${percent}%`;
+  elements.confidenceValue.textContent = `自動検出 ${getLanguageName(result.code)} / ${percent}%`;
   elements.detectionHint.textContent = `${getLanguageName(result.code)} / ${percent}%`;
 }
 
@@ -352,8 +428,8 @@ async function handleTranslate() {
     return;
   }
 
-  if (!("LanguageDetector" in self) || !("Translator" in self)) {
-    setStatus("このブラウザでは必要な Built-in AI API が利用できません。", "error");
+  if (!("Translator" in self)) {
+    setStatus("このブラウザでは Translator API が利用できません。", "error");
     return;
   }
 
@@ -365,7 +441,7 @@ async function handleTranslate() {
     const sourceLanguage = currentSourceLanguage;
 
     if (!sourceLanguage) {
-      throw new Error("入力言語の判定が完了してから翻訳してください。");
+      throw new Error("入力言語を選択するか、自動判定が完了してから翻訳してください。");
     }
 
     if (currentTargets.length === 0) {
@@ -670,13 +746,20 @@ function clearInput() {
   elements.sourceText.value = "";
   elements.resultText.value = "";
   elements.copyButton.disabled = true;
-  currentSourceLanguage = "";
-  currentTargets = [];
   window.clearTimeout(detectTimer);
   updateCharacterCount();
-  renderDetectedLanguage(null);
-  renderTargetOptions([], "");
-  setStatus("入力すると言語を自動判定します。");
+  if (isAutoSourceLanguage()) {
+    targetRun += 1;
+    currentSourceLanguage = "";
+    currentTargets = [];
+    renderSourceLanguageStatus(null);
+    renderTargetOptions([], "");
+    setStatus("入力すると言語を自動判定します。");
+  } else {
+    currentSourceLanguage = elements.sourceLanguage.value;
+    renderSourceLanguageStatus({ code: currentSourceLanguage, manual: true });
+    setStatus("翻訳するテキストを入力してください。");
+  }
   updateTranslateButton();
   elements.sourceText.focus();
 }
@@ -704,9 +787,13 @@ function setBusy(isBusy) {
 function updateTranslateButton() {
   const hasText = elements.sourceText.value.trim().length > 0;
   const hasTarget = elements.targetLanguage.value.length > 0;
-  const hasApis = "LanguageDetector" in self && "Translator" in self;
+  const hasApis = "Translator" in self;
   const isReady = currentSourceLanguage.length > 0 && currentTargets.length > 0;
   elements.translateButton.disabled = isTranslating || !hasText || !hasTarget || !hasApis || !isReady;
+}
+
+function isAutoSourceLanguage() {
+  return elements.sourceLanguage.value === "";
 }
 
 function setStatus(message, tone = "neutral") {
@@ -751,7 +838,7 @@ function getLanguageName(code) {
   }
 }
 
-function createOrderedTargetCodes() {
+function createOrderedLanguageCodes() {
   const ordered = [];
 
   addCode(ordered, "en");

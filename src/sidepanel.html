@@ -20,11 +20,13 @@
       </header>
 
       <section class="language-bar" aria-label="翻訳設定">
-        <div class="language-pill detected-pill">
+        <label class="language-pill source-pill" for="sourceLanguage">
           <span class="control-label">入力言語</span>
-          <strong id="detectedLanguage">未検出</strong>
+          <select id="sourceLanguage">
+            <option value="">自動検出</option>
+          </select>
           <span id="confidenceValue" class="confidence"></span>
-        </div>
+        </label>
 
         <span class="language-arrow" aria-hidden="true">→</span>
 

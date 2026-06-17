@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Lingomate",
-  "description": "A side panel translator that detects the input language and translates with built-in browser AI APIs.",
-  "version": "0.1.0",
+  "description": "A side panel translator that detects or lets you choose the input language and translates with built-in browser AI APIs.",
+  "version": "0.0.1",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
