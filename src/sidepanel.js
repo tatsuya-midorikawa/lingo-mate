@@ -1,7 +1,14 @@
 const MIN_DETECTION_CHARS = 8;
+const MAX_TRANSLATION_CHUNK_CHARS = 600;
+const MIN_TRANSLATION_CHUNK_CHARS = 80;
+const MIN_TRANSLATION_SPLIT_CHARS = 120;
 const LINE_BREAK_PATTERN = /(\r\n|\n|\r)/;
 const LINE_BREAK_ONLY_PATTERN = /^(?:\r\n|\n|\r)$/;
 const EMOJI_PATTERN = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
+const SENTENCE_END_PATTERN = /^[.!?。！？]$/u;
+const CLAUSE_END_PATTERN = /^[,;:、，；：]$/u;
+const WHITESPACE_PATTERN = /^\s$/u;
+const TRANSLATABLE_TEXT_PATTERN = /\p{Letter}/u;
 const SUPPORTED_AVAILABILITY = new Set(["available", "downloadable", "downloading"]);
 
 const SUPPORTED_LANGUAGES = [
@@ -122,6 +129,12 @@ async function checkApiAvailability() {
 }
 
 function handleInput() {
+  detectionRun += 1;
+  targetRun += 1;
+  translationRun += 1;
+  isTranslating = false;
+  elements.translateButton.textContent = "翻訳";
+  hideProgress();
   updateCharacterCount();
   elements.resultText.value = "";
   elements.copyButton.disabled = true;
@@ -349,18 +362,14 @@ async function handleTranslate() {
   setBusy(true);
 
   try {
-    let sourceLanguage = currentSourceLanguage;
+    const sourceLanguage = currentSourceLanguage;
 
     if (!sourceLanguage) {
-      sourceLanguage = await detectInputLanguage({ force: true });
-    }
-
-    if (!sourceLanguage) {
-      throw new Error("入力言語を判定できませんでした。");
+      throw new Error("入力言語の判定が完了してから翻訳してください。");
     }
 
     if (currentTargets.length === 0) {
-      await refreshTargetLanguages(sourceLanguage);
+      throw new Error("翻訳先の準備が完了してから翻訳してください。");
     }
 
     const targetLanguage = elements.targetLanguage.value;
@@ -371,8 +380,7 @@ async function handleTranslate() {
 
     setStatus("翻訳しています。");
 
-    const translator = await getTranslator(sourceLanguage, targetLanguage);
-    const translatedText = await translatePreservingLineBreaks(translator, rawText);
+    const translatedText = await translateText(sourceLanguage, targetLanguage, rawText);
 
     if (runId !== translationRun) {
       return;
@@ -397,7 +405,25 @@ async function handleTranslate() {
   }
 }
 
-async function translatePreservingLineBreaks(translator, text) {
+async function translateText(sourceLanguage, targetLanguage, text) {
+  let translator;
+
+  try {
+    translator = await getTranslator(sourceLanguage, targetLanguage);
+  } catch (error) {
+    resetTranslator(sourceLanguage, targetLanguage);
+    throw normalizeTranslationError(error);
+  }
+
+  try {
+    return await translatePreservingLineBreaks(translator, text, MAX_TRANSLATION_CHUNK_CHARS);
+  } catch (error) {
+    resetTranslator(sourceLanguage, targetLanguage);
+    throw normalizeTranslationError(error);
+  }
+}
+
+async function translatePreservingLineBreaks(translator, text, maxChunkChars) {
   const translatedParts = [];
 
   for (const part of text.split(LINE_BREAK_PATTERN)) {
@@ -406,29 +432,120 @@ async function translatePreservingLineBreaks(translator, text) {
       continue;
     }
 
-    translatedParts.push(await translatePreservingEmoji(translator, part));
+    translatedParts.push(await translatePreservingEmoji(translator, part, maxChunkChars));
   }
 
   return translatedParts.join("");
 }
 
-async function translatePreservingEmoji(translator, text) {
+async function translatePreservingEmoji(translator, text, maxChunkChars) {
+  if (!TRANSLATABLE_TEXT_PATTERN.test(text)) {
+    return text;
+  }
+
   if (!EMOJI_PATTERN.test(text)) {
-    return translator.translate(text);
+    return translateChunked(translator, text, maxChunkChars);
   }
 
   const translatedSegments = [];
 
   for (const segment of splitEmojiSegments(text)) {
-    if (segment.isEmoji || segment.text.trim().length === 0) {
+    if (segment.isEmoji || segment.text.trim().length === 0 || !TRANSLATABLE_TEXT_PATTERN.test(segment.text)) {
       translatedSegments.push(segment.text);
       continue;
     }
 
-    translatedSegments.push(await translator.translate(segment.text));
+    translatedSegments.push(await translateChunked(translator, segment.text, maxChunkChars));
   }
 
   return translatedSegments.join("");
+}
+
+async function translateChunked(translator, text, maxChunkChars) {
+  const chunks = splitTranslationChunks(text, maxChunkChars);
+  const translatedChunks = [];
+
+  for (const chunk of chunks) {
+    translatedChunks.push(await translateChunkWithFallback(translator, chunk));
+  }
+
+  return translatedChunks.join("");
+}
+
+async function translateChunkWithFallback(translator, text) {
+  try {
+    return await translator.translate(text);
+  } catch (error) {
+    if (!isRetryableTranslationError(error)) {
+      throw error;
+    }
+
+    const graphemes = toGraphemes(text);
+
+    if (graphemes.length <= MIN_TRANSLATION_CHUNK_CHARS) {
+      throw error;
+    }
+
+    const nextChunkChars = Math.max(MIN_TRANSLATION_CHUNK_CHARS, Math.ceil(graphemes.length / 2));
+    const translatedChunks = [];
+
+    for (const chunk of splitTranslationChunks(text, nextChunkChars)) {
+      translatedChunks.push(await translateChunkWithFallback(translator, chunk));
+    }
+
+    return translatedChunks.join("");
+  }
+}
+
+function splitTranslationChunks(text, maxChunkChars) {
+  const graphemes = toGraphemes(text);
+
+  if (graphemes.length <= maxChunkChars) {
+    return [text];
+  }
+
+  const chunks = [];
+  let start = 0;
+
+  while (start < graphemes.length) {
+    const end = Math.min(start + maxChunkChars, graphemes.length);
+
+    if (end === graphemes.length) {
+      chunks.push(graphemes.slice(start).join(""));
+      break;
+    }
+
+    const splitAt = findTranslationSplitIndex(graphemes, start, end, maxChunkChars);
+    chunks.push(graphemes.slice(start, splitAt).join(""));
+    start = splitAt;
+  }
+
+  return chunks.filter(Boolean);
+}
+
+function findTranslationSplitIndex(graphemes, start, end, maxChunkChars) {
+  const minSplitDistance = Math.min(MIN_TRANSLATION_SPLIT_CHARS, Math.floor(maxChunkChars / 2));
+  const minSplit = Math.min(end - 1, start + minSplitDistance);
+
+  for (let index = end; index > minSplit; index -= 1) {
+    if (SENTENCE_END_PATTERN.test(graphemes[index - 1])) {
+      return index;
+    }
+  }
+
+  for (let index = end; index > minSplit; index -= 1) {
+    if (CLAUSE_END_PATTERN.test(graphemes[index - 1])) {
+      return index;
+    }
+  }
+
+  for (let index = end; index > minSplit; index -= 1) {
+    if (WHITESPACE_PATTERN.test(graphemes[index - 1])) {
+      return index;
+    }
+  }
+
+  return end;
 }
 
 function splitEmojiSegments(text) {
@@ -495,20 +612,30 @@ async function getDetector() {
   }
 }
 
+function resetTranslator(sourceLanguage, targetLanguage) {
+  const key = getTranslatorKey(sourceLanguage, targetLanguage);
+  const cachedTranslator = translatorCache.get(key);
+
+  translatorCache.delete(key);
+
+  Promise.resolve(cachedTranslator).then((translator) => {
+    if (typeof translator?.destroy === "function") {
+      translator.destroy();
+    }
+  }).catch(() => {
+    // The failed translator has already been removed from the cache.
+  });
+}
+
+function getTranslatorKey(sourceLanguage, targetLanguage) {
+  return `${sourceLanguage}:${targetLanguage}`;
+}
+
 async function getTranslator(sourceLanguage, targetLanguage) {
-  const key = `${sourceLanguage}:${targetLanguage}`;
+  const key = getTranslatorKey(sourceLanguage, targetLanguage);
 
   if (translatorCache.has(key)) {
     return translatorCache.get(key);
-  }
-
-  const availability = await Translator.availability({
-    sourceLanguage,
-    targetLanguage
-  });
-
-  if (!SUPPORTED_AVAILABILITY.has(availability)) {
-    throw new Error(`${sourceLanguage} から ${targetLanguage} への翻訳は利用できません。`);
   }
 
   const translatorPromise = Translator.create({
@@ -578,7 +705,8 @@ function updateTranslateButton() {
   const hasText = elements.sourceText.value.trim().length > 0;
   const hasTarget = elements.targetLanguage.value.length > 0;
   const hasApis = "LanguageDetector" in self && "Translator" in self;
-  elements.translateButton.disabled = isTranslating || !hasText || !hasTarget || !hasApis;
+  const isReady = currentSourceLanguage.length > 0 && currentTargets.length > 0;
+  elements.translateButton.disabled = isTranslating || !hasText || !hasTarget || !hasApis || !isReady;
 }
 
 function setStatus(message, tone = "neutral") {
@@ -735,4 +863,17 @@ function formatAvailability(availability) {
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRetryableTranslationError(error) {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("generic failure") || message.includes("generic failures");
+}
+
+function normalizeTranslationError(error) {
+  if (!isRetryableTranslationError(error)) {
+    return error;
+  }
+
+  return new Error("翻訳エンジンが処理に失敗しました。入力を分割して再試行しましたが、完了できませんでした。少し時間を置くか、翻訳先言語を変えてお試しください。");
 }
